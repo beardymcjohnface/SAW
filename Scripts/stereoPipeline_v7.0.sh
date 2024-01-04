@@ -79,6 +79,8 @@ else
     echo `date` " singularity image file check: file does not exist, please double check your SIF file is in the current directory or the path given by the option -s is valid."
 fi
 
+outDir=$(readlink -e $outDir)
+workDir=$(readlink -e $(pwd))
 
 if [[ ! -d $outDir ]];then
     mkdir -p $outDir
@@ -88,12 +90,13 @@ fi
 maskname=$(basename $maskFile)
 SN=${maskname%%.*}
 
-maskDIR=$(dirname $maskFile)
-annoDIR=$(dirname $annoFile)
-refDIR=$(dirname $GDir)
+maskDIR=$(readlink -e $(dirname $maskFile))
+annoDir=$(readlink -e $(dirname $annoFile))
+refDIR=$(readlink -e $(dirname $GDir))
+
 if [[ $iprFile ]] && [[ $imageTarFile ]];then
-    iprDIR=$(dirname $iprFile)
-    imgTarDIR=$(dirname $imageTarFile)
+    iprDIR=$(readlink -e $(dirname $iprFile))
+    imgTarDIR=$(readlink -e $(dirname $imageTarFile))
 fi
 
 # Prepare output directories
@@ -132,7 +135,7 @@ if [[ ! -n "$read2" ]]; then
     for each in "${arr_result[@]}";do
         if [[ ! -d $each ]];then mkdir -p $each; fi
     done
-    export SINGULARITY_BIND=$outDir,$maskDIR,$annoDIR,$refDIR
+    export SINGULARITY_BIND=$workDir,$outDir,$maskDIR,$annoDIR,$refDIR
     /usr/bin/time -v singularity exec ${sif} splitMask \
         ${maskFile} ${outDir}/00.mapping/splitBin $threads $splitCnt 2_25
     for ((i=1;i<=$splitCnt;i++)); do
@@ -143,7 +146,7 @@ else
     fqType="Q40"
     read2List=(`echo $read2 | tr ',' ' '`)
     fqNumber=`echo ${#read1List[@]}`
-    export SINGULARITY_BIND=$outDir,$maskDIR,$annoDIR,$refDIR
+    export SINGULARITY_BIND=$workDir,$outDir,$maskDIR,$annoDIR,$refDIR
     /usr/bin/time -v singularity exec ${sif} CIDCount \
         -i ${maskFile} \
         -s ${refName} \
@@ -157,7 +160,7 @@ echo `date` "=> CID mapping, adapter filtering and RNA alignment start......"
 if [[ $fqType == 'Q40' ]]; then
     for ((i=0;i<=`expr $(echo $fqNumber) - 1`;i++)); do
         fqname=$(basename ${read1List[i]})
-        fqdir=$(dirname ${read1List[i]})
+        fqdir=$(readlink -e $(dirname ${read1List[i]}))
         fqbase=${fqname%%.*}
         fqbases[i]=$fqbase
         bcPara=${outDir}/00.mapping/${fqbase}.bcPara
@@ -178,9 +181,9 @@ if [[ $fqType == 'Q40' ]]; then
         if [[ $rRNAremove == "Y" ]]; then
             echo "rRNAremove" >> $bcPara
         fi
-        read1DIR=$(dirname ${read1List[i]})
-        read2DIR=$(dirname ${read2List[i]})
-        export SINGULARITY_BIND=$read1DIR,$read2DIR,$outDir,$maskDIR,$annoDIR,$refDIR
+        read1DIR=$(readlink -e $(dirname ${read1List[i]}))
+        read2DIR=$(readlink -e $(dirname ${read2List[i]}))
+        export SINGULARITY_BIND=$workDir,$read1DIR,$read2DIR,$outDir,$maskDIR,$annoDIR,$refDIR
         /usr/bin/time -v singularity exec ${sif} mapping \
             --outSAMattributes spatial \
             --outSAMtype BAM SortedByCoordinate \
@@ -217,7 +220,7 @@ elif [[ $fqType == 'Q4' ]]; then
         echo "in=$(ls ${outDir}/00.mapping/splitBin/${a}.${SN}.barcodeToPos.bin)" > $bcPara
         read1List=${outDir}/00.mapping/mergeList/$a.${SN}.Q4.fq.list
         echo "in1=${read1List}" >> $bcPara
-        read1DIR=$(dirname $(cat $read1List)|tr '\n' ',')
+        read1DIR=$(readlink -e $(dirname $(cat $read1List)|tr '\n' ','))
         echo "barcodeReadsCount=${barcodeReadsCount}" >> $bcPara
         echo "barcodeStart=0" >> $bcPara
         echo "barcodeLen=24" >> $bcPara
@@ -230,7 +233,7 @@ elif [[ $fqType == 'Q4' ]]; then
         if [[ $rRNAremove == "Y" ]]; then
             echo "rRNAremove" >> $bcPara
         fi
-        export SINGULARITY_BIND=$read1DIR,$outDir,$maskDIR,$annoDIR,$refDIR
+        export SINGULARITY_BIND=$workDir,$read1DIR,$outDir,$maskDIR,$annoDIR,$refDIR
         /usr/bin/time -v singularity exec ${sif} mapping \
             --outSAMattributes spatial \
             --outSAMtype BAM SortedByCoordinate \
@@ -270,7 +273,7 @@ fi
 # Run SAW merge to integrate barcodeReadsCount file
 echo `date` "=> merge barcode reads count tables start......"
 barcodeReadsCounts=${outDir}/01.merge/${SN}.merge.barcodeReadsCount.txt
-export SINGULARITY_BIND=$outDir,$maskDIR
+export SINGULARITY_BIND=$workDir,$outDir,$maskDIR
 if [[ $fqType == 'Q4' ]] && [[ $(echo ${#bcReadsCounts[*]}) > '1' ]]; then
     echo 'Q4'
     /usr/bin/time -v singularity exec ${sif} merge \
@@ -293,7 +296,7 @@ fi
 
 # Run SAW count to perform annotation, deduplication, and generate gene expression matrix
 echo `date` "=> annotation, deduplication, and generate gene expression matrix start......"
-export SINGULARITY_BIND=$outDir,$annoDIR,$refDIR
+export SINGULARITY_BIND=$workDir,$outDir,$annoDIR,$refDIR
 export HDF5_USE_FILE_LOCKING=FALSE
 /usr/bin/time -v singularity exec ${sif} count \
     -i ${starBamsStr} \
@@ -314,9 +317,9 @@ if [[ -f $imageTarFile ]] && [[ -f $iprFile ]]  && [[ $doCell == "Y" ]]; then
     ## Run register (stitch, tissue segmentation, cell segmentation) + imageTools
     echo `date` "=> image processing and registration start......."
     export HDF5_USE_FILE_LOCKING=FALSE
-    imgTarDIR=$(dirname $imageTarFile)
-    iprDIR=$(dirname $iprFile)
-    export SINGULARITY_BIND=$outDir,$imgTarDIR,$iprDIR
+    imgTarDIR=$(readlink -e $(dirname $imageTarFile))
+    iprDIR=$(readlink -e $(dirname $iprFile))
+    export SINGULARITY_BIND=$workDir,$outDir,$imgTarDIR,$iprDIR
 
     /usr/bin/time -v singularity exec ${sif} register \
         -i ${imageTarFile} \
@@ -348,10 +351,10 @@ elif [[ -f $imageTarFile ]] && [[ -f $iprFile ]]  && [[ $doCell == "N" ]]; then
     ## Run register (stitch, tissue segmentation) + imageTools
     echo `date` "=> image processing and registration start......."
     export HDF5_USE_FILE_LOCKING=FALSE
-    imgTarDIR=$(dirname $imageTarFile)
-    iprDIR=$(dirname $iprFile)
+    imgTarDIR=$(readlink -e $(dirname $imageTarFile))
+    iprDIR=$(readlink -e $(dirname $iprFile))
 
-    export SINGULARITY_BIND=$outDir,$imgTarDIR,$iprDIR
+    export SINGULARITY_BIND=$workDir,$outDir,$imgTarDIR,$iprDIR
     /usr/bin/time -v singularity exec ${sif} register \
         -i ${imageTarFile} \
         -c ${iprFile} \
@@ -386,7 +389,7 @@ if [[ -f $imageTarFile ]] && [[ -f $iprFile ]]; then
     nucleusLayer=$(find ${outDir}/03.register -maxdepth 1 -name \*fov_stitched*.tif -exec sh -c 'for f do basename -- "$f" _fov_stitched*.tif;done' sh {} + | grep -v IF | awk -F_ '{print$1}')
     tissueMaskFile=$(find ${outDir}/03.register -maxdepth 1 -name *_${SN}_tissue_cut.tif)
     export HDF5_USE_FILE_LOCKING=FALSE
-    export SINGULARITY_BIND=$outDir
+    export SINGULARITY_BIND=$workDir,$outDir
     /usr/bin/time -v singularity exec ${sif} tissueCut \
         -i ${outDir}/02.count/${SN}.raw.gef \
         --dnbfile ${barcodeReadsCounts} \
@@ -412,7 +415,7 @@ if [[ -f $imageTarFile ]] && [[ -f $iprFile ]]; then
     labelmask=$(find ${outDir}/03.register -name \*${label}_tissue_cut.tif)
     echo $labelmask
     export HDF5_USE_FILE_LOCKING=FALSE
-    export SINGULARITY_BIND=$outDir
+    export SINGULARITY_BIND=$workDir,$outDir
     /usr/bin/time -v singularity exec ${sif} tissueCut \
         -l $label \
         -i ${outDir}/02.count/${SN}.raw.gef \
@@ -425,7 +428,7 @@ if [[ -f $imageTarFile ]] && [[ -f $iprFile ]]; then
     done
 else
     ## Run tissueCut based on the gene expression matrix directly
-    export SINGULARITY_BIND=$outDir,$annoDIR,$refDIR
+    export SINGULARITY_BIND=$workDir,$outDir,$annoDIR,$refDIR
     echo `date` "=> there is no image, tissueCut based on the gene expression matrix start......."
     export HDF5_USE_FILE_LOCKING=FALSE
     /usr/bin/time -v singularity exec ${sif} tissueCut \
@@ -473,7 +476,7 @@ done
 # Run SAW spatialCluster
 binSize=200
 resolution=1.0
-export SINGULARITY_BIND=$outDir
+export SINGULARITY_BIND=$workDir,$outDir
 echo `date` "=> spatialCluster start......."
 export HDF5_USE_FILE_LOCKING=FALSE
 mkdir -p ${outDir}/tmp
@@ -501,7 +504,7 @@ export MPLCONFIGDIR=${outDir}/tmp
 # done
 
 # Run SAW cellCut, cellCorrect, cellCluster and cellChunk
-export SINGULARITY_BIND=$outDir
+export SINGULARITY_BIND=$workDir,$outDir
 if [[ $doCell == 'Y' ]]; then
     echo `date` "=> cellCut start......."
     export HDF5_USE_FILE_LOCKING=FALSE
@@ -553,7 +556,7 @@ fi
 
 
 # Run SAW saturation
-export SINGULARITY_BIND=$outDir
+export SINGULARITY_BIND=$workDir,$outDir
 echo `date` "=> saturation start ......"
 export HDF5_USE_FILE_LOCKING=FALSE
 bcStatStr=$(find ${outDir}/00.mapping -name \*stat | tr '\n' ',' | sed 's/.$//')
@@ -569,7 +572,7 @@ bcStatStr=$(find ${outDir}/00.mapping -name \*stat | tr '\n' ',' | sed 's/.$//')
 # Run SAW report to generate HTML file
 echo `date` "=> report generation start......"
 export HDF5_USE_FILE_LOCKING=FALSE
-export SINGULARITY_BIND=$outDir
+export SINGULARITY_BIND=$workDir,$outDir
 out_iprFile=$(find ${outDir}/03.register -maxdepth 1 -name \*.ipr | head -1)
 
 bcStatStr=$(find ${outDir}/00.mapping -name \*stat | tr '\n' ',' | sed 's/.$//')
