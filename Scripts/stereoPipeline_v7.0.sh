@@ -94,7 +94,9 @@ maskDIR=$(readlink -e $(dirname $maskFile))
 annoDir=$(readlink -e $(dirname $annoFile))
 refDIR=$(readlink -e $(dirname $GDir))
 
-if [[ $iprFile ]] && [[ $imageTarFile ]];then
+if [[ $iprFile ]] && [[ $imageTarFile ]]; then
+    imageTarFile=$(readlink -e $imageTarFile)
+    iprFile=$(readlink -e $iprFile)
     iprDIR=$(readlink -e $(dirname $iprFile))
     imgTarDIR=$(readlink -e $(dirname $imageTarFile))
 fi
